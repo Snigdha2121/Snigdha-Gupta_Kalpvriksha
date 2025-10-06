@@ -7,30 +7,53 @@ typedef struct
     int age;
 } user;
 
-// Function to create user
-void create()
+void file_exists()
 {
-    user u;
-    FILE *fptr;
     FILE *check;
-    FILE *check_id;
-    
     check = fopen("users.txt", "r");
     if(check == NULL)
     {
-        fptr = fopen("users.txt", "w");
-        if(fptr == NULL)
+        check = fopen("users.txt", "w");
+        if(check == NULL)
         {
             printf("error in creating file");
-            return;;
+            return;
         }
-        fprintf(fptr, "Id\tName\tAge\n");
-        fclose(fptr);
+        fprintf(check, "Id\tName\tAge\n");
+        fclose(check);
     }
     else
     {
         fclose(check);
     }
+}
+
+int id_exists(int id)
+{
+    FILE *fptr = fopen("users.txt", "r");
+    if (!fptr) return 0;
+
+    char header[100];
+    fgets(header, sizeof(header), fptr);
+    user temp;
+    while (fscanf(fptr, "%d\t%499[^\t]\t%d\n", &temp.id, temp.name, &temp.age) == 3)
+    {
+        if (temp.id == id)
+        {
+            fclose(fptr);
+            return 1;
+        }
+    }
+    fclose(fptr);
+    return 0;
+}
+
+void create()
+{
+    user u;
+    FILE *fptr;
+
+    file_exists();
 
     fptr = fopen("users.txt", "a");
     if(fptr == NULL)
@@ -41,37 +64,30 @@ void create()
 
     printf("Enter id: ");
     scanf("%d", &u.id);
-
-    check_id = fopen("users.txt", "r");
-    if(check_id != NULL)
+    if(id_exists(u.id))
     {
-        char header[100];
-        fgets(header, sizeof(header), check_id);
-
-        user temp;
-        while (fscanf(check_id, "%d\t%499[^\t]\t%d\n", &temp.id, temp.name, &temp.age) == 3) 
-        {
-        if (temp.id == u.id) 
-        {
-            printf("Id already exists\n");
-            fclose(check_id);
-            fclose(fptr);
-            return;
-        }
-        } 
+        printf("Id already exists\n");
+        fclose(fptr);
+        return;
     }
 
     printf("Enter name: ");
     scanf(" %[^\n]", u.name);
     printf("Enter age: ");
-    scanf("%d", &u.age);
+    int result = scanf("%d", &u.age);
+    if(result != 1 || u.age < 0 || u.age > 120)
+    {
+        printf("Invalid age. Record did not create\n");
+        while(getchar() != '\n');
+        fclose(fptr);
+        return;
+    }
+    while(getchar() != '\n');
 
     fprintf(fptr, "%d\t%s\t%d\n", u.id, u.name, u.age);
     fclose(fptr);
-    fclose(check_id);
 }
 
-// Function to read user
 void read()
 {
     user u;
@@ -92,22 +108,27 @@ void read()
     fclose(fptr);
 }
 
-// Function to update user by "ID"
 void update()
 {
-    int id, found = 0;
+    int id;
     printf("Enter the ID of user you want to update: ");
-    scanf("%d", &id);
+    if(scanf("%d", &id) != 1) {
+        printf("Invalid id\n");
+        while(getchar() != '\n');
+        return;
+    }
+    while(getchar() != '\n');
 
-    FILE *fptr;
-    FILE *temp;
-    fptr = fopen("users.txt", "r");
-    temp = fopen("temp.txt", "w");
+    if(!id_exists(id)) {
+        printf("User not found\n");
+        return;
+    }
 
-    if(fptr == NULL || temp == NULL)
-    {
-        printf("error opening file");
-        return;;
+    FILE *fptr = fopen("users.txt", "r");
+    FILE *temp = fopen("temp.txt", "w");
+    if(fptr == NULL || temp == NULL) {
+        printf("Error opening file\n");
+        return;
     }
 
     char header[100];
@@ -115,31 +136,32 @@ void update()
     fprintf(temp, "%s", header);
 
     user u;
-    while(fscanf(fptr, "%d\t%499[^\t]\t%d\n", &u.id, u.name, &u.age) == 3)
-    {
-        if (u.id == id) 
-        {
-            found = 1;
+    while(fscanf(fptr, "%d\t%499[^\t]\t%d\n", &u.id, u.name, &u.age) == 3) {
+        if(u.id == id) {
             printf("Enter new name to update: ");
             scanf(" %[^\n]", u.name);
+            while(getchar() != '\n');
+
             printf("Enter new age to update: ");
-            scanf("%d", &u.age);
+            int result = scanf("%d", &u.age);
+            if(result != 1 || u.age < 0 || u.age > 120) {
+                printf("Invalid age. Record did not update\n");
+                while(getchar() != '\n');
+                fclose(fptr);
+                fclose(temp);
+                remove("temp.txt");
+                return;
+            }
+            while(getchar() != '\n');
         }
         fprintf(temp, "%d\t%s\t%d\n", u.id, u.name, u.age);
     }
     fclose(fptr);
     fclose(temp);
-
     remove("users.txt");
     rename("temp.txt", "users.txt");
-
-    if(found == 0)
-    {
-        printf("User not found\n");
-    }
 }
 
-// Function to delete user by "id"
 void delete()
 {
     int id, found = 0;
