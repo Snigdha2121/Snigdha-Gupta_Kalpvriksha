@@ -7,7 +7,7 @@ void displayMatrix(int size, int (*randomMatrix)[size])
     {
         for(int j =0; j<size; j++)
         {
-            printf("%d\t", *(*(randomMatrix+i)+j));
+            printf("%4d", *(*(randomMatrix+i)+j));
         }
         printf("\n");
     }
@@ -59,8 +59,33 @@ void rotateMatrix(int size, int (*randomMatrix)[size])
     }
     reverse(size, randomMatrix);
 
-    printf("\nThe rotated Matrix:\n");
+    printf("\nMatrix after 90 degree Clockwise Rotation:\n");
     displayMatrix(size, randomMatrix);
+}
+
+int calculateAverage(int size, int (*randomMatrix)[size], int i, int j)
+{
+    int sum = 0, count = 0;
+    for (int row = i - 1; row <= i + 1; row++)
+    {
+        for (int column = j - 1; column <= j + 1; column++)
+        {
+            if (row >= 0 && row < size && column >= 0 && column < size)
+            {
+                sum += *(*(randomMatrix + row) + column);
+                count++;
+            }
+        }
+    }
+    return sum / count;
+}
+
+void processRow(int size, int (*randomMatrix)[size], int i, int *currRow)
+{
+    for (int j = 0; j < size; j++)
+    {
+        currRow[j] = calculateAverage(size, randomMatrix, i, j);
+    }
 }
 
 void filter(int size, int (*randomMatrix)[size])
@@ -70,22 +95,8 @@ void filter(int size, int (*randomMatrix)[size])
 
     for (int i = 0; i < size; i++)
     {
-        for (int j = 0; j < size; j++)
-        {
-            int sum = 0, count = 0;
-            for (int row = i - 1; row <= i + 1; row++)
-            {
-                for (int column = j - 1; column <= j + 1; column++)
-                {
-                    if (row >= 0 && row < size && column >= 0 && column < size)
-                    {
-                        sum += *(*(randomMatrix + row) + column);
-                        count++;
-                    }
-                }
-            }
-            currRow[j] = sum / count;
-        }
+        processRow(size, randomMatrix, i, currRow);
+
         if (i > 0)
         {
             for (int j = 0; j < size; j++)
@@ -99,12 +110,13 @@ void filter(int size, int (*randomMatrix)[size])
             prevRow[j] = currRow[j];
         }
     }
+
     for (int j = 0; j < size; j++)
     {
         *(*(randomMatrix + size - 1) + j) = prevRow[j];
     }
 
-    printf("\nMatrix after applying 3x3 average filter:");
+    printf("\nMatrix after Applying %d x %d Smoothing Filter:\n", size, size);
     displayMatrix(size, randomMatrix);
 }
 
@@ -116,7 +128,14 @@ int main()
     do
     {
         printf("\nEnter matrix size (2-10): ");
-        scanf("%d", &size);
+        int result = scanf("%d", &size);
+
+        if (result != 1)
+        {
+            printf("\nInvalid input! Please enter an integer.\n");
+            while (getchar() != '\n');
+            continue;
+        }
 
         if(size>10 || size <2)
         {
