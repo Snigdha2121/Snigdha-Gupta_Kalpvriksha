@@ -73,26 +73,34 @@ int validateProductId(ProductDetails *product, int count)
 void validateProductName(char *name)
 {
     char ch;
-    int i;
+    int i, overflow;
 
     while (1)
     {
         printf("Product Name: ");
         i = 0;
-
-        while ((ch = getchar()) == '\n'); 
+        overflow = 0;
+        while ((ch = getchar()) == '\n');
         if (ch == EOF) continue;
 
         name[i++] = ch;
-        while (i < 50 && (ch = getchar()) != '\n' && ch != EOF)
-            name[i++] = ch;
-
+        while ((ch = getchar()) != '\n' && ch != EOF)
+        {
+            if (i < 50) name[i++] = ch;
+            else overflow = 1;
+        }
         name[i] = '\0';
+
+        if (overflow)
+        {
+            printf("Name too long (max 50 chars). Re-enter.\n");
+            while ((ch = getchar()) != '\n' && ch != EOF);
+            continue;
+        }
 
         if (i == 0 || (i == 1 && name[0] == ' '))
         {
-            printf("Product name cannot be empty. Please re-enter.\n");
-            while ((ch = getchar()) != '\n' && ch != EOF);
+            printf("Product name cannot be empty. Re-enter.\n");
             continue;
         }
         break;
