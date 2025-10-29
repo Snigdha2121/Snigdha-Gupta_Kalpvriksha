@@ -23,14 +23,13 @@ void showMenu()
     printf("Enter your choice: ");
 }
 
-int validateProductId(ProductDetails *product, int count) 
-{ 
+int getValidateInt(const char *prompt, int min, int max) 
+{
     char input[50];
-    int valid, id;
-
+    int valid, value;
     while(1) 
-    { 
-        printf("Product ID: "); 
+    {
+        printf("%s", prompt);
         scanf("%49s", input);
         valid = 1;
 
@@ -43,62 +42,78 @@ int validateProductId(ProductDetails *product, int count)
             }
         }
 
-        if(!valid)
+        if(!valid) 
         {
             printf("Invalid input. Digits only.\n");
             continue;
         }
 
-        id = atoi(input);
-
-        if(id < 1 || id > 10000)
+        value = atoi(input);
+        if(value < min || value > max) 
         {
-            printf("Invalid ID range (1-10000). Try again.\n");
+            printf("Out of range (%d-%d). Try again.\n", min, max);
             continue;
         }
+        return value;
+    }
+}
 
-        for(int i = 0; i < count; i++)
-        {
-            if(product[i].ProductId == id)
-            {
+int isEmptyOrSpaces(const char *str) {
+    for(int i = 0; str[i] != '\0'; i++) 
+    {
+        if(str[i] != ' ')
+        return 0;
+    }
+    return 1;
+}
+
+int validateProductId(ProductDetails *product, int count) 
+{
+    int id, duplicate;
+    while (1) {
+        id = getValidateInt("Product ID: ", 1, 10000);
+        duplicate = 0;
+
+        for (int i = 0; i < count; i++) {
+            if (product[i].ProductId == id) {
                 printf("Duplicate ID. Enter a new one.\n");
-                valid = 0;
+                duplicate = 1;
                 break;
             }
         }
-        if(valid) return id;
+        if (!duplicate) return id;
     }
 }
 
 void validateProductName(char *name)
 {
     char ch;
-    int i, overflow;
+    int namePos, overflow;
 
-    while (1)
+    while(1)
     {
         printf("Product Name: ");
-        i = 0;
+        namePos = 0;
         overflow = 0;
         while ((ch = getchar()) == '\n');
         if (ch == EOF) continue;
 
-        name[i++] = ch;
+        name[namePos++] = ch;
         while ((ch = getchar()) != '\n' && ch != EOF)
         {
-            if (i < 50) name[i++] = ch;
+            if (namePos < 50) name[namePos++] = ch;
             else overflow = 1;
         }
-        name[i] = '\0';
+        name[namePos] = '\0';
 
-        if (overflow)
+        if(overflow)
         {
             printf("Name too long (max 50 chars). Re-enter.\n");
             while ((ch = getchar()) != '\n' && ch != EOF);
             continue;
         }
 
-        if (i == 0 || (i == 1 && name[0] == ' '))
+        if(namePos == 0 || isEmptyOrSpaces(name)) 
         {
             printf("Product name cannot be empty. Re-enter.\n");
             continue;
@@ -181,12 +196,7 @@ int validateProductQuantity()
 
 void getInitialProducts(ProductDetails **product, int *count, int maxProducts)
 {
-    printf("\nEnter initial number of products: ");
-    while(scanf("%d", count) != 1 || *count < 1 || *count > maxProducts)
-    {
-        while(getchar() != '\n');
-        printf("Invalid range (1-%d). Enter again: ", maxProducts);
-    }
+    *count = getValidateInt("\nEnter initial number of products: ", 1, maxProducts);
 
     *product = (ProductDetails *)calloc(*count, sizeof(ProductDetails));
     if(*product == NULL)
