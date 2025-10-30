@@ -224,12 +224,13 @@ void addProduct(ProductDetails **product, int *count, int maxProducts)
         return;
     }
 
-    *product = realloc(*product, (*count + 1) * sizeof(ProductDetails));
-    if(*product == NULL)
+    ProductDetails *temp = realloc(*product, (*count + 1) * sizeof(ProductDetails));
+    if(temp == NULL) 
     {
-        printf("\nMemory reallocation failed.\n");
-        return;
+    printf("\nMemory reallocation failed.\n");
+    return;
     }
+    *product = temp;
 
     printf("\nEnter new product details:\n");
     (*product)[*count].ProductId = validateProductId(*product, *count);
@@ -399,9 +400,25 @@ void deleteProduct(ProductDetails **product, int *count)
                 (*product)[j] = (*product)[j + 1];
 
             (*count)--;
-            *product = realloc(*product, (*count) * sizeof(ProductDetails));
-            printf("\nProduct deleted successfully!\n");
             found = 1;
+
+            if(*count == 0)
+            {
+                free(*product);
+                *product = NULL;
+            }
+            else
+            {
+                ProductDetails *temp = realloc(*product, (*count) * sizeof(**product));
+                if(temp == NULL)
+                {
+                    printf("\nMemory reallocation failed (data preserved).\n");
+                    return;
+                }
+                *product = temp;
+            }
+
+            printf("\nProduct deleted successfully!\n");
             break;
         }
     }
