@@ -198,14 +198,19 @@ void clearFileTree(FileNode *node)
         return;
     if (node->child)
     {
-        FileNode *child = node->child;
-        FileNode *iterator = child;
-        do
+        FileNode *start = node->child;
+        FileNode *end = start->previous;
+
+        start->previous = NULL;
+        end->next = NULL;
+
+        FileNode *iterator = start;
+        while (iterator)
         {
             FileNode *nextChild = iterator->next;
             clearFileTree(iterator);
             iterator = nextChild;
-        } while (iterator != child);
+        }
     }
     if (!node->isDirectory && node->blockList)
         free(node->blockList);
@@ -256,58 +261,78 @@ void createFile(char *name)
     }
     FileNode *newFile = createFileNode(name, 0, currentDirectory);
     addChild(currentDirectory, newFile);
-    printf("File '%s' created successfuly.\n", name);
+    printf("File '%s' created successfully.\n", name);
+}
+
+int calculateBlocksNeeded(int size) {
+    return (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+}
+
+int *allocateBlocks(int count) {
+    int *blocks = malloc(sizeof(int) * count);
+    if (!blocks) return NULL;
+
+    for (int i = 0; i < count; i++) {
+        int b = getFreeBlock();
+        if (b < 0) {
+            // rollback
+            for (int j = 0; j < i; j++)
+                addFreeBlock(blocks[j]);
+            free(blocks);
+            return NULL;
+        }
+        blocks[i] = b;
+    }
+    return blocks;
+}
+
+void freeOldBlocks(FileNode *file) {
+    if (file->blockList) {
+        for (int i = 0; i < file->blockCount; i++)
+            addFreeBlock(file->blockList[i]);
+        free(file->blockList);
+    }
 }
 
 void writeFile(char *name, char *content)
 {
     FileNode *file = findChild(currentDirectory, name);
-    if (!file)
-    {
-        printf("File not found\n");
+    if (!file || file->isDirectory) {
+        printf("Invalid file\n");
         return;
     }
-    if (file->isDirectory)
-    {
-        printf("Cannot write to a directory\n");
-        return;
-    }
+
     int length = getLength(content);
-    int blocksNeeded = (length + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    if (countFreeBlocks() < blocksNeeded)
-    {
+    int blocksNeeded = calculateBlocksNeeded(length);
+
+    if (countFreeBlocks() < blocksNeeded) {
         printf("Not enough free space\n");
         return;
     }
 
-    int *allocatedBlocks = malloc(sizeof(int) * blocksNeeded);
-    for (int i = 0; i < blocksNeeded; i++)
-    {
-        int blockIndex = getFreeBlock();
-        if (blockIndex < 0)
-        {
-            printf("Block allocation error\n");
-            free(allocatedBlocks);
-            return;
-        }
-        allocatedBlocks[i] = blockIndex;
+    int *blocks = allocateBlocks(blocksNeeded);
+    if (!blocks) {
+        printf("Block allocation failed\n");
+        return;
+    }
+
+    for (int i = 0; i < blocksNeeded; i++) {
+        int blockIndex = blocks[i];
         int offset = i * BLOCK_SIZE;
-        for (int j = 0; j < BLOCK_SIZE; j++)
-        {
-            int position = offset + j;
-            diskMemory[blockIndex * BLOCK_SIZE + j] = (position < length) ? content[position] : 0;
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            int pos = offset + j;
+            diskMemory[blockIndex * BLOCK_SIZE + j] =
+                (pos < length) ? content[pos] : 0;
         }
     }
 
-    for (int i = 0; i < file->blockCount; i++)
-        addFreeBlock(file->blockList[i]);
-    if (file->blockList)
-        free(file->blockList);
+    freeOldBlocks(file);
 
-    file->blockList = allocatedBlocks;
+    file->blockList = blocks;
     file->blockCount = blocksNeeded;
     file->size = length;
-    printf("Data written successfully (size =%d bytes).\n", length - 1);
+
+    printf("Data written (%d bytes)\n", length);
 }
 
 void readFile(char *name)
@@ -493,6 +518,11 @@ int main()
             scanf("%s", argument1);
             getchar();
             fgets(argument2, 512, stdin);
+
+            int len = getLength(argument2);
+            if (len > 0 && argument2[len - 1] == '\n')
+                argument2[len - 1] = '\0';
+
             writeFile(argument1, argument2);
         }
         else if (compareString(command, "read") == 0)
