@@ -35,14 +35,45 @@ typedef struct
 
 static TeamInfo teamList[10];
 static int totalTeams = 10;
-static PlayerNode *allBatsmenHead = NULL;
-static PlayerNode *allBowlersHead = NULL;
-static PlayerNode *allAllRoundersHead = NULL;
+
+void takeValidInput(int *userChoice)
+{
+    int enteredNumber;
+    char bufferChar;
+    while (1)
+    {
+        if (scanf("%d", &enteredNumber) != 1)
+        {
+            printf("Invalid. Re-enter: ");
+            while ((bufferChar = getchar()) != '\n')
+                ;
+            continue;
+        }
+
+        bufferChar = getchar();
+
+        while (bufferChar == ' ')
+            bufferChar = getchar();
+
+        if (bufferChar != '\n')
+        {
+            printf("Kindly enter only numeric values (1-6). Re-enter: ");
+            while ((bufferChar = getchar()) != '\n')
+                ;
+            continue;
+        }
+        *userChoice = enteredNumber;
+        return;
+    }
+}
 
 void copyString(char *destination, char *source)
 {
+    if (!destination || !source)
+        return;
+
     int indexValue = 0;
-    while (source && source[indexValue])
+    while (source[indexValue])
     {
         destination[indexValue] = source[indexValue];
         indexValue++;
@@ -82,6 +113,9 @@ float calculatePerformanceIndex(PlayerInfo *playerInfo)
 PlayerNode *createPlayerNode(PlayerInfo *playerInfo)
 {
     PlayerNode *newNode = (PlayerNode *)malloc(sizeof(PlayerNode));
+    if (!newNode)
+        return NULL;
+
     newNode->Data = *playerInfo;
     newNode->Next = NULL;
     return newNode;
@@ -111,27 +145,6 @@ void addPlayerToTeamList(TeamInfo *teamInfo, PlayerNode *newNode)
         teamInfo->BowlerHead = insertSorted(teamInfo->BowlerHead, newNode);
     else if (compareString(newNode->Data.Role, "All-rounder") == 0)
         teamInfo->AllRounderHead = insertSorted(teamInfo->AllRounderHead, newNode);
-}
-
-void addPlayerToGlobalList(PlayerInfo *playerInfo)
-{
-    PlayerNode *newNode = createPlayerNode(playerInfo);
-
-    if (compareString(playerInfo->Role, "Batsman") == 0)
-    {
-        newNode->Next = allBatsmenHead;
-        allBatsmenHead = newNode;
-    }
-    else if (compareString(playerInfo->Role, "Bowler") == 0)
-    {
-        newNode->Next = allBowlersHead;
-        allBowlersHead = newNode;
-    }
-    else if (compareString(playerInfo->Role, "All-rounder") == 0)
-    {
-        newNode->Next = allAllRoundersHead;
-        allAllRoundersHead = newNode;
-    }
 }
 
 void computeBattingStats(PlayerNode *headNode, float *totalStrikeRate, int *totalCount)
@@ -171,88 +184,30 @@ void computeTeamStats(TeamInfo *teamInfo)
 
 int findTeamIndexById(int teamId)
 {
-    int lowIndex = 0;
-    int highIndex = totalTeams - 1;
+    if (teamId < 1 || teamId > totalTeams)
+        return -1;
+    return teamId - 1;
+}
 
-    while (lowIndex <= highIndex)
+int findTeamIndexByName(const char *teamName)
+{
+    int low = 0;
+    int high = totalTeams - 1;
+
+    while (low <= high)
     {
-        int midIndex = lowIndex + (highIndex - lowIndex) / 2;
+        int mid = low + (high - low) / 2;
+        int cmp = compareString(teamList[mid].Name, (char *)teamName);
 
-        if (teamList[midIndex].TeamId == teamId)
-            return midIndex;
+        if (cmp == 0)
+            return mid;
 
-        if (teamList[midIndex].TeamId < teamId)
-            lowIndex = midIndex + 1;
+        if (cmp < 0)
+            low = mid + 1;
         else
-            highIndex = midIndex - 1;
+            high = mid - 1;
     }
     return -1;
-}
-
-int findTeamIndexByName(char *teamName)
-{
-    for (int indexValue = 0; indexValue < totalTeams; indexValue++)
-        if (compareString(teamList[indexValue].Name, teamName) == 0)
-            return indexValue;
-    return -1;
-}
-
-PlayerNode *getMiddleNode(PlayerNode *headNode)
-{
-    if (!headNode)
-        return headNode;
-
-    PlayerNode *slowNode = headNode;
-    PlayerNode *fastNode = headNode->Next;
-
-    while (fastNode)
-    {
-        fastNode = fastNode->Next;
-        if (fastNode)
-        {
-            slowNode = slowNode->Next;
-            fastNode = fastNode->Next;
-        }
-    }
-    return slowNode;
-}
-
-PlayerNode *mergeSortedLists(PlayerNode *firstList, PlayerNode *secondList)
-{
-    if (!firstList)
-        return secondList;
-    if (!secondList)
-        return firstList;
-
-    PlayerNode *resultNode;
-
-    if (firstList->Data.PerformanceIndex >= secondList->Data.PerformanceIndex)
-    {
-        resultNode = firstList;
-        resultNode->Next = mergeSortedLists(firstList->Next, secondList);
-    }
-    else
-    {
-        resultNode = secondList;
-        resultNode->Next = mergeSortedLists(firstList, secondList->Next);
-    }
-
-    return resultNode;
-}
-
-PlayerNode *mergeSort(PlayerNode *headNode)
-{
-    if (!headNode || !headNode->Next)
-        return headNode;
-
-    PlayerNode *middleNode = getMiddleNode(headNode);
-    PlayerNode *rightSide = middleNode->Next;
-    middleNode->Next = NULL;
-
-    PlayerNode *leftSorted = mergeSort(headNode);
-    PlayerNode *rightSorted = mergeSort(rightSide);
-
-    return mergeSortedLists(leftSorted, rightSorted);
 }
 
 void sortTeamsByStrikeRate(TeamInfo *arrayList, int count)
@@ -315,8 +270,12 @@ void populateTeams()
             continue;
 
         PlayerNode *node = createPlayerNode(&playerInfo);
+        if (!node)
+        {
+            fprintf(stderr, "Memory allocation failed while initializing players\n");
+            continue;
+        }
         addPlayerToTeamList(&teamList[teamIndex], node);
-        addPlayerToGlobalList(&playerInfo);
     }
 }
 
@@ -352,9 +311,6 @@ void cleanup()
         freePlayerNodes(teamList[indexValue].BowlerHead);
         freePlayerNodes(teamList[indexValue].AllRounderHead);
     }
-    freePlayerNodes(allBatsmenHead);
-    freePlayerNodes(allBowlersHead);
-    freePlayerNodes(allAllRoundersHead);
 }
 
 void printLine()
@@ -421,6 +377,72 @@ void getRoleName(int roleChoice, char *roleText)
         copyString(roleText, "Unknown");
 }
 
+void takeValidString(char *finalString, int maximumAllowedLength)
+{
+    char fullInputBuffer[300];
+    int inputLength;
+    char extraCharacter;
+
+    while (1)
+    {
+        if (!fgets(fullInputBuffer, sizeof(fullInputBuffer), stdin))
+            continue;
+
+        inputLength = 0;
+        while (fullInputBuffer[inputLength] != '\0' &&
+               fullInputBuffer[inputLength] != '\n')
+        {
+            inputLength++;
+        }
+
+        if (fullInputBuffer[inputLength] != '\n')
+        {
+            while ((extraCharacter = getchar()) != '\n')
+                ;
+        }
+
+        if (inputLength > maximumAllowedLength)
+        {
+            printf("Input exceeds %d characters. Re-enter: ", maximumAllowedLength);
+            continue;
+        }
+
+        fullInputBuffer[inputLength] = '\0';
+        copyString(finalString, fullInputBuffer);
+        return;
+    }
+}
+
+int takeValidRoleSelection()
+{
+    int enteredRole;
+    char bufferCharacter;
+
+    while (1)
+    {
+        if (scanf("%d", &enteredRole) != 1)
+        {
+            printf("Invalid entry. Please enter 1, 2, or 3: ");
+            while ((bufferCharacter = getchar()) != '\n')
+                ;
+            continue;
+        }
+
+        bufferCharacter = getchar();
+        while (bufferCharacter == ' ')
+            bufferCharacter = getchar();
+
+        if (bufferCharacter != '\n' || enteredRole < 1 || enteredRole > 3)
+        {
+            printf("Invalid entry. Please enter 1, 2, or 3: ");
+            while ((bufferCharacter = getchar()) != '\n')
+                ;
+            continue;
+        }
+        return enteredRole;
+    }
+}
+
 PlayerInfo readPlayerFromUser(char *teamName)
 {
     printf("Enter Player Details:\n");
@@ -430,13 +452,13 @@ PlayerInfo readPlayerFromUser(char *teamName)
     copyString(playerInfo.TeamName, teamName);
 
     printf("Player ID: ");
-    scanf("%d", &playerInfo.PlayerId);
+    takeValidInput(&playerInfo.PlayerId);
 
     printf("Player Name: ");
-    scanf(" %[^\n]s", playerInfo.Name);
+    takeValidString(playerInfo.Name, 50);
 
     printf("Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
-    scanf("%d", &roleChoice);
+    roleChoice = takeValidRoleSelection();
 
     getRoleName(roleChoice, playerInfo.Role);
 
@@ -464,7 +486,7 @@ void addPlayer()
 {
     int teamId;
     printf("Enter Team ID to add player: ");
-    scanf("%d", &teamId);
+    takeValidInput(&teamId);
 
     int teamIndex = findTeamIndexById(teamId);
     if (teamIndex < 0)
@@ -475,9 +497,12 @@ void addPlayer()
 
     PlayerInfo playerInfo = readPlayerFromUser(teamList[teamIndex].Name);
     PlayerNode *newNode = createPlayerNode(&playerInfo);
-
+    if (!newNode)
+    {
+        printf("Failed to add player: memory allocation error\n");
+        return;
+    }
     addPlayerToTeamList(&teamList[teamIndex], newNode);
-    addPlayerToGlobalList(&playerInfo);
 
     computeTeamStats(&teamList[teamIndex]);
 
@@ -488,7 +513,7 @@ void DisplayTeam()
 {
     int teamId;
     printf("Enter Team ID: ");
-    scanf("%d", &teamId);
+    takeValidInput(&teamId);
 
     int teamIndex = findTeamIndexById(teamId);
     if (teamIndex < 0)
@@ -497,19 +522,19 @@ void DisplayTeam()
         return;
     }
 
-    TeamInfo *t = &teamList[teamIndex];
+    TeamInfo *selectedTeam = &teamList[teamIndex];
 
-    printf("Players of %s:\n", t->Name);
+    printf("Players of %s:\n", selectedTeam->Name);
     printPlayerHeader(0);
 
-    displayPlayerList(t->BatsmanHead, 0);
-    displayPlayerList(t->BowlerHead, 0);
-    displayPlayerList(t->AllRounderHead, 0);
+    displayPlayerList(selectedTeam->BatsmanHead, 0);
+    displayPlayerList(selectedTeam->BowlerHead, 0);
+    displayPlayerList(selectedTeam->AllRounderHead, 0);
 
     printLine();
 
-    printf("Total Players: %d\n", t->TotalPlayers);
-    printf("Average Batting Strike Rate: %.2f\n", t->AverageBattingStrikeRate);
+    printf("Total Players: %d\n", selectedTeam->TotalPlayers);
+    printf("Average Batting Strike Rate: %.2f\n", selectedTeam->AverageBattingStrikeRate);
 }
 
 void DisplayTeamsByStrikeRate()
@@ -537,7 +562,7 @@ void DisplayTeamsByStrikeRate()
     printLine();
 }
 
-PlayerNode* getTopKSelection(int* teamIndexOut, int* countLimitOut)
+PlayerNode *getTopKSelection(int *teamIndexOut, int *countLimitOut)
 {
     int teamId, roleChoice, countLimit;
 
@@ -552,12 +577,12 @@ PlayerNode* getTopKSelection(int* teamIndexOut, int* countLimitOut)
     }
 
     printf("Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
-    scanf("%d", &roleChoice);
+    roleChoice = takeValidRoleSelection();
 
     printf("Enter count: ");
     scanf("%d", &countLimit);
 
-    PlayerNode* list = NULL;
+    PlayerNode *list = NULL;
 
     if (roleChoice == 1)
         list = teamList[teamIndex].BatsmanHead;
@@ -577,7 +602,7 @@ PlayerNode* getTopKSelection(int* teamIndexOut, int* countLimitOut)
     return list;
 }
 
-void showTopK(PlayerNode* list, int teamIndex, int countLimit)
+void showTopK(PlayerNode *list, int teamIndex, int countLimit)
 {
     printf("Top %d players of team %s\n",
            countLimit, teamList[teamIndex].Name);
@@ -585,7 +610,7 @@ void showTopK(PlayerNode* list, int teamIndex, int countLimit)
     printPlayerHeader(0);
 
     int printed = 0;
-    PlayerNode* current = list;
+    PlayerNode *current = list;
 
     while (current && printed < countLimit)
     {
@@ -601,78 +626,125 @@ void displayTopK()
 {
     int teamIndex, countLimit;
 
-    PlayerNode* list = getTopKSelection(&teamIndex, &countLimit);
-    if (!list) return;
+    PlayerNode *list = getTopKSelection(&teamIndex, &countLimit);
+    if (!list)
+        return;
 
     showTopK(list, teamIndex, countLimit);
 }
 
-void handleDisplayAllByRole()
+static int readRoleChoice()
 {
     int roleChoice;
     printf("Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
-    scanf("%d", &roleChoice);
+    if (scanf("%d", &roleChoice) != 1)
+    {
+        while (getchar() != '\n')
+            ;
+        return -1;
+    }
+    return roleChoice;
+}
 
-    PlayerNode *listHead = NULL;
+static void heapPush(PlayerNode **heap, int *heapSize, PlayerNode *node)
+{
+    int i = (*heapSize)++;
+    while (i > 0)
+    {
+        int parent = (i - 1) / 2;
+        if (heap[parent]->Data.PerformanceIndex >= node->Data.PerformanceIndex)
+            break;
+        heap[i] = heap[parent];
+        i = parent;
+    }
+    heap[i] = node;
+}
 
-    if (roleChoice == 1)
-        listHead = allBatsmenHead;
-    else if (roleChoice == 2)
-        listHead = allBowlersHead;
-    else if (roleChoice == 3)
-        listHead = allAllRoundersHead;
-    else
+static PlayerNode *heapPop(PlayerNode **heap, int *heapSize)
+{
+    if (*heapSize == 0)
+        return NULL;
+    PlayerNode *top = heap[0];
+    PlayerNode *last = heap[--(*heapSize)];
+    int i = 0;
+    while (1)
+    {
+        int left = 2 * i + 1;
+        int right = left + 1;
+        if (left >= *heapSize)
+            break;
+        int child = left;
+        if (right < *heapSize && heap[right]->Data.PerformanceIndex > heap[left]->Data.PerformanceIndex)
+            child = right;
+        if (last->Data.PerformanceIndex >= heap[child]->Data.PerformanceIndex)
+            break;
+        heap[i] = heap[child];
+        i = child;
+    }
+    if (*heapSize > 0)
+        heap[i] = last;
+    return top;
+}
+
+int collectRoleLists(int roleChoice, PlayerNode **initialHeads)
+{
+    int activeLists = 0;
+
+    for (int i = 0; i < totalTeams; i++)
+    {
+        if (roleChoice == 1)
+            initialHeads[i] = teamList[i].BatsmanHead;
+        else if (roleChoice == 2)
+            initialHeads[i] = teamList[i].BowlerHead;
+        else
+            initialHeads[i] = teamList[i].AllRounderHead;
+
+        if (initialHeads[i])
+            activeLists++;
+    }
+
+    return activeLists;
+}
+
+void handleDisplayAllByRole()
+{
+    printf("Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
+    int roleChoice = takeValidRoleSelection();
+    if (roleChoice < 1 || roleChoice > 3)
     {
         printf("Invalid role\n");
         return;
     }
 
-    PlayerNode *sortedList = mergeSort(listHead);
+    PlayerNode *initialHeads[10];
+    int activeLists = collectRoleLists(roleChoice, initialHeads);
 
-    if (roleChoice == 1)
-        allBatsmenHead = sortedList;
-    else if (roleChoice == 2)
-        allBowlersHead = sortedList;
-    else if (roleChoice == 3)
-        allAllRoundersHead = sortedList;
+    if (activeLists == 0)
+    {
+        printf("No players available for this role.\n");
+        return;
+    }
+
+    PlayerNode *heap[10];
+    int heapSize = 0;
+
+    for (int i = 0; i < totalTeams; i++)
+    {
+        if (initialHeads[i])
+            heapPush(heap, &heapSize, initialHeads[i]);
+    }
 
     printPlayerHeader(1);
 
-    PlayerNode *currentNode = sortedList;
-    while (currentNode)
+    while (heapSize > 0)
     {
-        printPlayer(&currentNode->Data, 1);
-        currentNode = currentNode->Next;
+        PlayerNode *best = heapPop(heap, &heapSize);
+        printPlayer(&best->Data, 1);
+
+        if (best->Next)
+            heapPush(heap, &heapSize, best->Next);
     }
-}
-
-void takeValidInput(int *userChoice)
-{
-    int choice;
-    char bufferChar;
-
-    while (1)
-    {
-        if (scanf("%d", &choice) != 1)
-        {
-            printf("Invalid. Re-enter: ");
-            while ((bufferChar = getchar()) != '\n')
-                ;
-            continue;
-        }
-
-        bufferChar = getchar();
-        if (bufferChar != '\n')
-        {
-            printf("Kindly enter only numeric values (1-6). Re-enter: ");
-            while ((bufferChar = getchar()) != '\n')
-                ;
-            continue;
-        }
-
-        *userChoice = choice;
-        return;
-    }
+    printLine();
 }
 
 void showMenu(int *userChoice)
@@ -701,15 +773,15 @@ int main()
     {
         showMenu(&choice);
 
-        switch(choice)
+        switch (choice)
         {
-            case 1: addPlayer(); break;
-            case 2: DisplayTeam(); break;
-            case 3: DisplayTeamsByStrikeRate(); break;
-            case 4: displayTopK(); break;
-            case 5: handleDisplayAllByRole(); break;
-            case 6: printf("Exiting\n"); break;
-            default: printf("Invalid choice\n");
+        case 1: addPlayer(); break;
+        case 2: DisplayTeam(); break;
+        case 3: DisplayTeamsByStrikeRate(); break;
+        case 4: displayTopK(); break;
+        case 5: handleDisplayAllByRole(); break;
+        case 6: printf("Exiting\n"); break;
+        default: printf("Invalid choice\n");
         }
     } while (choice != 6);
 
