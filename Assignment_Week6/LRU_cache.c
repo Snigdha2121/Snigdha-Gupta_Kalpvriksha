@@ -44,7 +44,7 @@ int compareString(const char *first, const char *second)
     {
         char firstChar = tolower(first[index]);
         char secondChar = tolower(second[index]);
-        if (tolower(first[index]) != tolower(second[index]))
+        if (firstChar != secondChar)
             return firstChar - secondChar;
 
         index++;
@@ -178,7 +178,7 @@ void addHashNode(LruCache *cachePointer, int key, QueueNode *queueNodePointer)
     {
         printf("Memory allocation failed\n");
         return;
-    }
+    } 
     newHashNodePointer->Key = key;
     newHashNodePointer->QNode = queueNodePointer;
     newHashNodePointer->Next = cachePointer->Hash[hashIndex];
@@ -341,9 +341,12 @@ int main()
             if (!validInteger(&key))
                 continue;
 
-            if (!validString(valueBuffer, sizeof(valueBuffer)))
+            if (scanf(" %255[^\n]", valueBuffer) != 1)
+            {
+                printf("Invalid string input\n");
+                discardRemainingInput();
                 continue;
-
+            }
             putKeyValueInCache(cachePointer, key, valueBuffer);
         }
         else if (compareString(commandBuffer, "get") == 0)
