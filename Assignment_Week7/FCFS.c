@@ -29,6 +29,7 @@ typedef struct
     int completionTime;
     int killedFlag;
     ProcessState state;
+    int pendingIOStart;
 } ProcessControlBlock;
 
 typedef struct
@@ -269,9 +270,9 @@ int validateIoFieldsProcess(int fieldCount, const char *ioStartStr, const char *
     if (fieldCount >= 4 && compareString(ioStartStr, "-") != 0 && isNumberString(ioStartStr))
     {
         *ioStart = atoi(ioStartStr);
-        if (*ioStart < 0 || *ioStart > cpuBurst)
+        if (*ioStart < 0 || *ioStart >= cpuBurst)
         {
-            fprintf(stderr, "Error: I/O Start (%d) must be between 0 and CPU Burst (%d).\n", *ioStart, cpuBurst);
+            fprintf(stderr, "Error: I/O Start (%d) must be >= 0 and < CPU Burst (%d).\n", *ioStart, cpuBurst);
             return 0;
         }
     }
@@ -304,6 +305,8 @@ void initializePCBFields(ProcessControlBlock *pcb, const char *name, int pid, in
     pcb->completionTime = -1;
     pcb->killedFlag = 0;
     pcb->state = StateReady;
+    pcb->pendingIOStart = 0;
+
 }
 
 int parseProcessLine(const char *linePointer, ProcessControlBlock *processControlBlockPointer)
@@ -526,12 +529,9 @@ void executeCpuTick(ProcessControlBlock **runningProcessPointer, ProcessQueue *w
         *runningProcessPointer = NULL;
     }
     else if (processControlBlockPointer->ioDuration > 0 && processControlBlockPointer->ioStart >= 0 && processControlBlockPointer->executedCpu == processControlBlockPointer->ioStart)
-    {
-        processControlBlockPointer->state = StateWaiting;
-        processControlBlockPointer->ioRemaining = processControlBlockPointer->ioDuration;
-        enqueueProcess(waitingQueuePointer, processControlBlockPointer);
-        *runningProcessPointer = NULL;
-    }
+        {
+            processControlBlockPointer->pendingIOStart = 1;
+        }
 }
 
 void sortKillEvents(KillEvent *killEventArray, int count)
@@ -541,9 +541,7 @@ void sortKillEvents(KillEvent *killEventArray, int count)
         KillEvent key = killEventArray[i];
         int j = i - 1;
 
-        while (j >= 0 &&
-               (killEventArray[j].killTime > key.killTime ||
-                (killEventArray[j].killTime == key.killTime && killEventArray[j].pid > key.pid)))
+        while (j >= 0 && (killEventArray[j].killTime > key.killTime || (killEventArray[j].killTime == key.killTime && killEventArray[j].pid > key.pid)))
         {
             killEventArray[j + 1] = killEventArray[j];
             j = j - 1;
@@ -573,48 +571,136 @@ void sortResultsByPid(int *indexArray, int count, ProcessControlBlock *processAr
     }
 }
 
-void simulateScheduler(ProcessControlBlock *processArray, int processCount, KillEvent *killEventArray, int killEventCount)
+void handleKills(int currentTime, KillEvent *killEvents, int killCount, int *killIndex, ProcessQueue *ready, ProcessQueue *waiting, ProcessQueue *terminated,ProcessControlBlock **running, int *completed)
 {
-    ProcessQueue readyQueue;
-    ProcessQueue waitingQueue;
-    ProcessQueue terminatedQueue;
+    while (*killIndex < killCount &&
+           killEvents[*killIndex].killTime == currentTime)
+    {
+        applyKillEvent(ready, waiting, terminated, running,
+                       killEvents[*killIndex].pid, currentTime, completed);
+        (*killIndex)++;
+    }
+}
 
-    initializeQueue(&readyQueue);
-    initializeQueue(&waitingQueue);
-    initializeQueue(&terminatedQueue);
+void scheduleNextProcess(ProcessQueue *ready, ProcessControlBlock **running)
+{
+    if (!*running)
+    {
+        *running = dequeueProcess(ready);
+        if (*running)
+            (*running)->state = StateRunning;
+    }
+}
 
-    for (int processIndex = 0; processIndex < processCount; processIndex++)
-        enqueueProcess(&readyQueue, &processArray[processIndex]);
+void processCpuWork(ProcessControlBlock **running, ProcessQueue *terminated, int *completed, int currentTime)
+{
+    if (!*running)
+        return;
 
-    if (killEventCount > 0)
-        sortKillEvents(killEventArray, killEventCount);
+    ProcessControlBlock *pcb = *running;
+    pcb->executedCpu++;
+
+    if (pcb->executedCpu == pcb->cpuBurst)
+    {
+        pcb->state = StateTerminated;
+        pcb->completionTime = currentTime + 1;
+        enqueueProcess(terminated, pcb);
+        (*completed)++;
+        *running = NULL;
+        return;
+    }
+
+    if (pcb->ioDuration > 0 && pcb->ioStart >= 0 &&
+        pcb->executedCpu == pcb->ioStart)
+    {
+        pcb->pendingIOStart = 1;
+    }
+}
+
+void startPendingIO(ProcessControlBlock **running, ProcessQueue *waiting)
+{
+    if (*running == NULL)
+        return;
+
+    ProcessControlBlock *pcb = *running;
+
+    if (pcb->pendingIOStart)
+    {
+        pcb->pendingIOStart = 0;
+        pcb->state = StateWaiting;
+        pcb->ioRemaining = pcb->ioDuration +1;
+
+        enqueueProcess(waiting, pcb);
+        *running = NULL;
+    }
+}
+
+void processWaitingIO(ProcessQueue *waiting, ProcessQueue *ready)
+{
+    updateWaitingQueue(waiting, ready);
+}
+
+void printQueue(const char *label, ProcessQueue *q)
+{
+    printf("%s: [", label);
+    QueueNode *node = q->frontNodePointer;
+    while (node)
+    {
+        printf("%d", node->processControlBlockPointer->pid);
+        node = node->nextNodePointer;
+        if (node) printf(", ");
+    }
+    printf("]\n");
+}
+
+void printTickLog(int tick,
+                  ProcessControlBlock *running,
+                  ProcessQueue *ready,
+                  ProcessQueue *waiting)
+{
+    printf("\n=== Tick %d ===\n", tick);
+
+    if (running)
+        printf("Running: %d (%s)\n", running->pid, running->name);
+    else
+        printf("Running: [idle]\n");
+
+    printQueue("Ready", ready);
+    printQueue("Waiting", waiting);
+}
+
+void simulateScheduler(ProcessControlBlock *processArray, int processCount,
+                       KillEvent *killEvents, int killCount)
+{
+    ProcessQueue ready, waiting, terminated;
+    initializeQueue(&ready);
+    initializeQueue(&waiting);
+    initializeQueue(&terminated);
+
+    for (int i = 0; i < processCount; i++)
+        enqueueProcess(&ready, &processArray[i]);
+
+    if (killCount > 0)
+        sortKillEvents(killEvents, killCount);
 
     int currentTime = 0;
-    int completedProcessCount = 0;
-    int killEventIndex = 0;
-    ProcessControlBlock *runningProcessPointer = NULL;
+    int completed = 0;
+    int killIndex = 0;
+    ProcessControlBlock *running = NULL;
 
-    while (completedProcessCount < processCount)
+    while (completed < processCount)
     {
-        while (killEventIndex < killEventCount && killEventArray[killEventIndex].killTime == currentTime)
-        {
-            applyKillEvent(&readyQueue, &waitingQueue, &terminatedQueue, &runningProcessPointer, killEventArray[killEventIndex].pid, currentTime, &completedProcessCount);
-            killEventIndex++;
-        }
+        handleKills(currentTime, killEvents, killCount, &killIndex, &ready, &waiting, &terminated, &running, &completed);
 
-        if (!runningProcessPointer)
-        {
-            runningProcessPointer = dequeueProcess(&readyQueue);
-            if (runningProcessPointer)
-                runningProcessPointer->state = StateRunning;
-        }
+        processWaitingIO(&waiting, &ready);
 
-        updateWaitingQueue(&waitingQueue, &readyQueue);
+        scheduleNextProcess(&ready, &running);
 
-        if (runningProcessPointer)
-        {
-            executeCpuTick(&runningProcessPointer, &waitingQueue, &terminatedQueue, &completedProcessCount, currentTime);
-        }
+        processCpuWork(&running, &terminated, &completed, currentTime);
+
+        startPendingIO(&running, &waiting);
+
+        printTickLog(currentTime, running, &ready, &waiting);
 
         currentTime++;
         sleep(1);
@@ -623,8 +709,7 @@ void simulateScheduler(ProcessControlBlock *processArray, int processCount, Kill
 
 void printResultsWithKill(ProcessControlBlock *processArray, int *indexArray, int processCount)
 {
-    printf("\n%-8s %-15s %-8s %-8s %-15s %-12s %-12s\n",
-           "PID", "Name", "CPU", "IO", "Status", "Turnaround", "Waiting");
+    printf("\n%-8s %-15s %-8s %-8s %-15s %-12s %-12s\n", "PID", "Name", "CPU", "IO", "Status", "Turnaround", "Waiting");
 
     for (int i = 0; i < processCount; i++)
     {
@@ -632,18 +717,14 @@ void printResultsWithKill(ProcessControlBlock *processArray, int *indexArray, in
 
         if (pcb->killedFlag)
         {
-            printf("%-8d %-15s %-8d %-8d KILLED at %-6d %-12s %-12s\n",
-                   pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration,
-                   pcb->completionTime, "-", "-");
+            printf("%-8d %-15s %-8d %-8d KILLED at %-6d %-12s %-12s\n", pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration, pcb->completionTime, "-", "-");
         }
         else
         {
             int turnaround = pcb->completionTime;
             int waiting = turnaround - pcb->cpuBurst;
 
-            printf("%-8d %-15s %-8d %-8d %-15s %-12d %-12d\n",
-                   pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration,
-                   "OK", turnaround, waiting);
+            printf("%-8d %-15s %-8d %-8d %-15s %-12d %-12d\n", pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration, "OK", turnaround, waiting);
         }
     }
 
@@ -652,8 +733,7 @@ void printResultsWithKill(ProcessControlBlock *processArray, int *indexArray, in
 
 void printResultsNoKill(ProcessControlBlock *processArray, int *indexArray, int processCount)
 {
-    printf("\n%-8s %-15s %-8s %-8s %-12s %-12s\n",
-           "PID", "Name", "CPU", "IO", "Turnaround", "Waiting");
+    printf("\n%-8s %-15s %-8s %-8s %-12s %-12s\n", "PID", "Name", "CPU", "IO", "Turnaround", "Waiting");
 
     for (int i = 0; i < processCount; i++)
     {
@@ -662,9 +742,7 @@ void printResultsNoKill(ProcessControlBlock *processArray, int *indexArray, int 
         int turnaround = pcb->completionTime;
         int waiting = turnaround - pcb->cpuBurst;
 
-        printf("%-8d %-15s %-8d %-8d %-12d %-12d\n",
-               pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration,
-               turnaround, waiting);
+        printf("%-8d %-15s %-8d %-8d %-12d %-12d\n", pcb->pid, pcb->name, pcb->cpuBurst, pcb->ioDuration, turnaround, waiting);
     }
 
     printf("\n");
